@@ -1,0 +1,492 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import "./globals.css";
+
+type ComparisonMode = "2-up" | "swipe" | "onion-skin";
+
+export default function Home() {
+  const [figmaFile, setFigmaFile] = useState<File | null>(null);
+  const [actualFile, setActualFile] = useState<File | null>(null);
+  const [figmaPreview, setFigmaPreview] = useState<string>("");
+  const [actualPreview, setActualPreview] = useState<string>("");
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("2-up");
+  const [sliderPosition, setSliderPosition] = useState(50);
+  const [isDragging, setIsDragging] = useState(false);
+  const [opacity, setOpacity] = useState(100);
+
+  // Zoom states
+  const [figmaZoom, setFigmaZoom] = useState(100);
+  const [actualZoom, setActualZoom] = useState(100);
+  const [swipeZoom, setSwipeZoom] = useState(100);
+  const [onionZoom, setOnionZoom] = useState(100);
+
+  const swipeContainerRef = useRef<HTMLDivElement>(null);
+  const figmaInputRef = useRef<HTMLInputElement>(null);
+  const actualInputRef = useRef<HTMLInputElement>(null);
+  const apiUrl = "http://localhost:3000/compare";
+
+  // Handle file selection and preview
+  const handleFileSelect = (file: File | null, type: "figma" | "actual") => {
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const preview = reader.result as string;
+      if (type === "figma") {
+        setFigmaFile(file);
+        setFigmaPreview(preview);
+      } else {
+        setActualFile(file);
+        setActualPreview(preview);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Handle drag and drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent, type: "figma" | "actual") => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith("image/")) {
+      handleFileSelect(file, type);
+    }
+  };
+
+  // Handle click to open file dialog
+  const handleUploadClick = (type: "figma" | "actual") => {
+    if (type === "figma") {
+      figmaInputRef.current?.click();
+    } else {
+      actualInputRef.current?.click();
+    }
+  };
+
+  // Compare images
+  const compare = async () => {
+    if (!figmaFile || !actualFile) return;
+
+    setLoading(true);
+    setResult(null);
+
+    const formData = new FormData();
+    formData.append("files", figmaFile);
+    formData.append("files", actualFile);
+
+    try {
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        body: formData,
+      });
+
+      const json = await res.json();
+      setResult(json);
+    } catch (error) {
+      console.error("Comparison failed:", error);
+      setResult({
+        error: "Failed to compare images. Please try again.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle swipe slider
+  const handleMouseDown = () => {
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging || !swipeContainerRef.current) return;
+
+    const rect = swipeContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = (x / rect.width) * 100;
+    setSliderPosition(Math.max(0, Math.min(100, percentage)));
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging]);
+
+  // Zoom controls
+  const handleZoom = (type: "figma" | "actual" | "swipe" | "onion", delta: number) => {
+    if (type === "figma") {
+      setFigmaZoom(prev => Math.max(50, Math.min(200, prev + delta)));
+    } else if (type === "actual") {
+      setActualZoom(prev => Math.max(50, Math.min(200, prev + delta)));
+    } else if (type === "swipe") {
+      setSwipeZoom(prev => Math.max(50, Math.min(200, prev + delta)));
+    } else if (type === "onion") {
+      setOnionZoom(prev => Math.max(50, Math.min(200, prev + delta)));
+    }
+  };
+
+  // Format result text
+  const getResultText = () => {
+    if (!result) return "";
+    if (result.error) return `Error: ${result.error}`;
+
+    let text = "";
+    if (result.summary) text += `${result.summary}\n\n`;
+    if (result.overall_match_score !== undefined) {
+      text += `Overall Match Score: ${result.overall_match_score}%\n\n`;
+    }
+    if (result.issues && result.issues.length > 0) {
+      text += `Issues Found (${result.issues.length}):\n`;
+      result.issues.forEach((issue: any, index: number) => {
+        text += `${index + 1}. [${issue.severity.toUpperCase()}] ${issue.type}: ${issue.description}\n`;
+      });
+    }
+    return text;
+  };
+
+  return (
+    <div className="app-container">
+      {/* Sidebar */}
+      <aside className={`sidebar ${figmaPreview && actualPreview ? 'collapsed' : ''}`}>
+        <header className="sidebar-header">
+          <h1 className="sidebar-title">Image Comparison Web App</h1>
+          <p className="sidebar-subtitle">Figma vs. Actual with AI Analysis</p>
+        </header>
+
+        <div className="upload-section">
+          {/* Figma Upload */}
+          <div>
+            <label className="upload-label" htmlFor="figma-upload">
+              Figma Design
+            </label>
+            <div
+              className="upload-box"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, "figma")}
+              onClick={() => handleUploadClick("figma")}
+            >
+              {figmaPreview ? (
+                <div className="preview-container">
+                  <img src={figmaPreview} alt="Figma" className="preview-image" />
+                  <button
+                    className="remove-preview-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFigmaFile(null);
+                      setFigmaPreview("");
+                    }}
+                  >
+                    <span className="material-icons">close</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="upload-content">
+                  <span className="material-icons upload-icon">upload_file</span>
+                  <div className="upload-text">
+                    <span className="upload-link">Upload a file</span>
+                    <span className="upload-or"> or drag and drop</span>
+                  </div>
+                  <p className="upload-hint">PNG, JPG, GIF up to 10MB</p>
+                </div>
+              )}
+              <input
+                ref={figmaInputRef}
+                type="file"
+                className="hidden-input"
+                accept="image/*"
+                onChange={(e) =>
+                  handleFileSelect(e.target.files?.[0] || null, "figma")
+                }
+              />
+            </div>
+          </div>
+
+          {/* Actual Upload */}
+          <div>
+            <label className="upload-label" htmlFor="actual-upload">
+              Actual Implementation
+            </label>
+            <div
+              className="upload-box"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, "actual")}
+              onClick={() => handleUploadClick("actual")}
+            >
+              {actualPreview ? (
+                <div className="preview-container">
+                  <img src={actualPreview} alt="Actual" className="preview-image" />
+                  <button
+                    className="remove-preview-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActualFile(null);
+                      setActualPreview("");
+                    }}
+                  >
+                    <span className="material-icons">close</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="upload-content">
+                  <span className="material-icons upload-icon">upload_file</span>
+                  <div className="upload-text">
+                    <span className="upload-link">Upload a file</span>
+                    <span className="upload-or"> or drag and drop</span>
+                  </div>
+                  <p className="upload-hint">PNG, JPG, GIF up to 10MB</p>
+                </div>
+              )}
+              <input
+                ref={actualInputRef}
+                type="file"
+                className="hidden-input"
+                accept="image/*"
+                onChange={(e) =>
+                  handleFileSelect(e.target.files?.[0] || null, "actual")
+                }
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="sidebar-footer">
+          <button
+            className="compare-button"
+            onClick={compare}
+            disabled={!figmaFile || !actualFile || loading}
+          >
+            <span className="material-icons">auto_awesome</span>
+            <span>{loading ? "Comparing..." : "Compare"}</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="main-content">
+        <div className={`viewer-container ${figmaPreview && actualPreview ? 'expanded' : ''}`}>
+          <div className="viewer-area">
+            {figmaPreview && actualPreview ? (
+              <>
+                {comparisonMode === "2-up" && (
+                  <div className="two-up-view">
+                    <div className="image-wrapper">
+                      <div className="image-controls">
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("figma", -10)}
+                          disabled={figmaZoom <= 50}
+                        >
+                          <span className="material-icons">zoom_out</span>
+                        </button>
+                        <span className="zoom-label">{figmaZoom}%</span>
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("figma", 10)}
+                          disabled={figmaZoom >= 200}
+                        >
+                          <span className="material-icons">zoom_in</span>
+                        </button>
+                      </div>
+                      <div className="image-scroll-container">
+                        <img
+                          src={figmaPreview}
+                          alt="Figma"
+                          className="comparison-img"
+                          style={{ transform: `scale(${figmaZoom / 100})` }}
+                        />
+                      </div>
+                      <div className="image-label">Figma Design</div>
+                    </div>
+                    <div className="image-wrapper">
+                      <div className="image-controls">
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("actual", -10)}
+                          disabled={actualZoom <= 50}
+                        >
+                          <span className="material-icons">zoom_out</span>
+                        </button>
+                        <span className="zoom-label">{actualZoom}%</span>
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("actual", 10)}
+                          disabled={actualZoom >= 200}
+                        >
+                          <span className="material-icons">zoom_in</span>
+                        </button>
+                      </div>
+                      <div className="image-scroll-container">
+                        <img
+                          src={actualPreview}
+                          alt="Actual"
+                          className="comparison-img"
+                          style={{ transform: `scale(${actualZoom / 100})` }}
+                        />
+                      </div>
+                      <div className="image-label">Actual Implementation</div>
+                    </div>
+                  </div>
+                )}
+
+                {comparisonMode === "swipe" && (
+                  <div className="swipe-mode-container">
+                    <div className="image-controls centered">
+                      <button
+                        className="zoom-btn"
+                        onClick={() => handleZoom("swipe", -10)}
+                        disabled={swipeZoom <= 50}
+                      >
+                        <span className="material-icons">zoom_out</span>
+                      </button>
+                      <span className="zoom-label">{swipeZoom}%</span>
+                      <button
+                        className="zoom-btn"
+                        onClick={() => handleZoom("swipe", 10)}
+                        disabled={swipeZoom >= 200}
+                      >
+                        <span className="material-icons">zoom_in</span>
+                      </button>
+                    </div>
+                    <div className="swipe-scroll-container">
+                      <div
+                        className="swipe-view"
+                        ref={swipeContainerRef}
+                        style={{ transform: `scale(${swipeZoom / 100})` }}
+                      >
+                        <img src={figmaPreview} alt="Figma" className="swipe-img base" />
+                        <div
+                          className="swipe-overlay"
+                          style={{ clipPath: `inset(0 0 0 ${sliderPosition}%)` }}
+                        >
+                          <img src={actualPreview} alt="Actual" className="swipe-img overlay" />
+                        </div>
+                        <div
+                          className="swipe-divider"
+                          style={{ left: `${sliderPosition}%` }}
+                          onMouseDown={handleMouseDown}
+                        >
+                          <div className="swipe-handle">
+                            <span className="material-icons">drag_indicator</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {comparisonMode === "onion-skin" && (
+                  <div className="onion-mode-container">
+                    <div className="image-controls centered">
+                      <button
+                        className="zoom-btn"
+                        onClick={() => handleZoom("onion", -10)}
+                        disabled={onionZoom <= 50}
+                      >
+                        <span className="material-icons">zoom_out</span>
+                      </button>
+                      <span className="zoom-label">{onionZoom}%</span>
+                      <button
+                        className="zoom-btn"
+                        onClick={() => handleZoom("onion", 10)}
+                        disabled={onionZoom >= 200}
+                      >
+                        <span className="material-icons">zoom_in</span>
+                      </button>
+                    </div>
+                    <div className="onion-scroll-container">
+                      <div
+                        className="onion-skin-view"
+                        style={{ transform: `scale(${onionZoom / 100})` }}
+                      >
+                        <img src={figmaPreview} alt="Figma" className="onion-img base" />
+                        <img
+                          src={actualPreview}
+                          alt="Actual"
+                          className="onion-img overlay"
+                          style={{ opacity: opacity / 100 }}
+                        />
+                      </div>
+                    </div>
+                    <div className="opacity-control">
+                      <label>Overlay Opacity: {opacity}%</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={opacity}
+                        onChange={(e) => setOpacity(Number(e.target.value))}
+                        className="opacity-slider"
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="empty-state">
+                <img
+                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuChmIs-ZEV5Bu7RGMtg-4S_l1RnXM6BN2uh6MHAGP94HipEo4-7a7xDQu31Zrwi02LIFJOrYhUDv1SHGQDkzu2ty4v7AIQAubEl1eQxv0lNlicCZuK-iKjAuByL1XGmBatZP6hQ9UsOoyBHoNYJMcsUVLvBaGVwA0A8UVHL2ORaJ1uSZTZEV4UtMluMEhUXFBJxFPsTTNFzqzzCp7_3HHY7quAgEUon5w9EdiuRWlOTGYN2DnXpbbFmn0Zo-Ds5ByPoOlwjzB_pZO0"
+                  alt="Upload images to compare"
+                  className="empty-state-img"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="mode-selector">
+            <div className="mode-buttons">
+              <button
+                className={`mode-btn ${comparisonMode === "2-up" ? "active" : ""}`}
+                onClick={() => setComparisonMode("2-up")}
+              >
+                2-up
+              </button>
+              <button
+                className={`mode-btn ${comparisonMode === "swipe" ? "active" : ""}`}
+                onClick={() => setComparisonMode("swipe")}
+              >
+                Swipe
+              </button>
+              <button
+                className={`mode-btn ${comparisonMode === "onion-skin" ? "active" : ""}`}
+                onClick={() => setComparisonMode("onion-skin")}
+              >
+                Onion Skin
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className={`results-section ${figmaPreview && actualPreview ? 'collapsed' : ''}`}>
+          <label className="results-label" htmlFor="ai-results">
+            AI Analysis Results
+          </label>
+          <textarea
+            id="ai-results"
+            className="results-textarea"
+            placeholder="AI comparison results will appear here..."
+            value={getResultText()}
+            readOnly
+          />
+        </div>
+      </main>
+    </div>
+  );
+}
