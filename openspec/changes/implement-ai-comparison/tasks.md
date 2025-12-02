@@ -1,0 +1,23 @@
+# Tasks: Implement AI Image Comparison
+
+- [x] Backend: Setup Gemini Service <!-- id: 0 -->
+  - [x] Install Google Generative AI SDK (`@google/generative-ai`).
+  - [x] Create `GeminiService` in NestJS.
+  - [x] Configure API key from environment variables.
+- [x] Backend: Implement Analysis Logic <!-- id: 1 -->
+  - [x] Create `analyzeImages` method in `GeminiService`.
+  - [x] Define the prompt for comparison.
+  - [x] Implement error handling and response parsing.
+- [x] Backend: Create API Endpoint <!-- id: 2 -->
+  - [x] Add `analyze` endpoint to `CompareController` (or create new controller).
+  - [x] Handle file uploads for the analysis endpoint.
+- [x] Frontend: Create AI Analysis UI <!-- id: 3 -->
+  - [x] Add "Analyze with AI" button in the comparison view.
+  - [x] Create a sidebar or modal to display analysis results.
+  - [x] Display loading state during analysis.
+- [x] Frontend: Integrate API <!-- id: 4 -->
+  - [x] Call the `POST /compare/ai` endpoint.
+  - [x] Render the returned list of issues.
+- [x] Testing & Refinement <!-- id: 5 -->
+  - [x] Test with various image pairs.
+  - [x] Refine the prompt for better accuracy.

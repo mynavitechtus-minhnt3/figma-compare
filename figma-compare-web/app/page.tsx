@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { API_ENDPOINTS, FILE_CONSTRAINTS, ZOOM_CONSTRAINTS } from "./constants";
 
 export default function Home() {
   const [figmaFile, setFigmaFile] = useState<File | null>(null);
@@ -17,13 +18,13 @@ export default function Home() {
 
   const handleFileSelect = (file: File, type: "figma" | "actual") => {
     // Validation
-    if (!file.type.match(/image\/(png|jpeg|jpg)/)) {
+    if (!file.type.match(FILE_CONSTRAINTS.ALLOWED_TYPES)) {
       alert("Only PNG and JPG files are supported");
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert("File size must be less than 10MB");
+    if (file.size > FILE_CONSTRAINTS.MAX_SIZE) {
+      alert("File size must be less than 20MB");
       return;
     }
 
@@ -69,26 +70,22 @@ export default function Home() {
     }
   };
 
-  const [comparisonMode, setComparisonMode] = useState<"2-up" | "swipe" | "onion-skin">("2-up");
+  const [comparisonMode, setComparisonMode] = useState<"2-up" | "swipe">("2-up");
   const [figmaZoom, setFigmaZoom] = useState(100);
   const [actualZoom, setActualZoom] = useState(100);
   const [swipeZoom, setSwipeZoom] = useState(100);
-  const [onionZoom, setOnionZoom] = useState(100);
   const [sliderPosition, setSliderPosition] = useState(50);
-  const [opacity, setOpacity] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
 
   const swipeContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleZoom = (type: "figma" | "actual" | "swipe" | "onion", delta: number) => {
+  const handleZoom = (type: "figma" | "actual" | "swipe", delta: number) => {
     if (type === "figma") {
-      setFigmaZoom((prev) => Math.min(200, Math.max(50, prev + delta)));
+      setFigmaZoom((prev) => Math.min(ZOOM_CONSTRAINTS.MAX, Math.max(ZOOM_CONSTRAINTS.MIN, prev + delta)));
     } else if (type === "actual") {
-      setActualZoom((prev) => Math.min(200, Math.max(50, prev + delta)));
-    } else if (type === "swipe") {
-      setSwipeZoom((prev) => Math.min(200, Math.max(50, prev + delta)));
+      setActualZoom((prev) => Math.min(ZOOM_CONSTRAINTS.MAX, Math.max(ZOOM_CONSTRAINTS.MIN, prev + delta)));
     } else {
-      setOnionZoom((prev) => Math.min(200, Math.max(50, prev + delta)));
+      setSwipeZoom((prev) => Math.min(ZOOM_CONSTRAINTS.MAX, Math.max(ZOOM_CONSTRAINTS.MIN, prev + delta)));
     }
   };
 
@@ -105,6 +102,41 @@ export default function Home() {
     const rect = swipeContainerRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     setSliderPosition((x / rect.width) * 100);
+  };
+
+  const [aiResults, setAiResults] = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+
+  const handleAIAnalysis = async () => {
+    if (!figmaFile || !actualFile) return;
+
+    setIsAnalyzing(true);
+    setAiResults(null);
+
+    const formData = new FormData();
+    formData.append("files", figmaFile);
+    formData.append("files", actualFile);
+
+    try {
+      const response = await fetch(API_ENDPOINTS.COMPARE_AI, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Analysis failed");
+      }
+
+      const data = await response.json();
+      setAiResults(data);
+      setShowAiModal(true);
+    } catch (error) {
+      console.error("Error analyzing images:", error);
+      alert("Failed to analyze images. Please try again.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -216,16 +248,16 @@ export default function Home() {
                     <div className="zoom-controls">
                       <button
                         className="zoom-btn"
-                        onClick={() => handleZoom("figma", -10)}
-                        disabled={figmaZoom <= 50}
+                        onClick={() => handleZoom("figma", -ZOOM_CONSTRAINTS.STEP)}
+                        disabled={figmaZoom <= ZOOM_CONSTRAINTS.MIN}
                       >
                         <span className="material-icons">remove</span>
                       </button>
                       <span className="zoom-text">{figmaZoom}%</span>
                       <button
                         className="zoom-btn"
-                        onClick={() => handleZoom("figma", 10)}
-                        disabled={figmaZoom >= 200}
+                        onClick={() => handleZoom("figma", ZOOM_CONSTRAINTS.STEP)}
+                        disabled={figmaZoom >= ZOOM_CONSTRAINTS.MAX}
                       >
                         <span className="material-icons">add</span>
                       </button>
@@ -246,16 +278,16 @@ export default function Home() {
                     <div className="zoom-controls">
                       <button
                         className="zoom-btn"
-                        onClick={() => handleZoom("actual", -10)}
-                        disabled={actualZoom <= 50}
+                        onClick={() => handleZoom("actual", -ZOOM_CONSTRAINTS.STEP)}
+                        disabled={actualZoom <= ZOOM_CONSTRAINTS.MIN}
                       >
                         <span className="material-icons">remove</span>
                       </button>
                       <span className="zoom-text">{actualZoom}%</span>
                       <button
                         className="zoom-btn"
-                        onClick={() => handleZoom("actual", 10)}
-                        disabled={actualZoom >= 200}
+                        onClick={() => handleZoom("actual", ZOOM_CONSTRAINTS.STEP)}
+                        disabled={actualZoom >= ZOOM_CONSTRAINTS.MAX}
                       >
                         <span className="material-icons">add</span>
                       </button>
@@ -295,67 +327,16 @@ export default function Home() {
                   <div className="zoom-controls">
                     <button
                       className="zoom-btn"
-                      onClick={() => handleZoom("swipe", -10)}
-                      disabled={swipeZoom <= 50}
+                      onClick={() => handleZoom("swipe", -ZOOM_CONSTRAINTS.STEP)}
+                      disabled={swipeZoom <= ZOOM_CONSTRAINTS.MIN}
                     >
                       <span className="material-icons">remove</span>
                     </button>
                     <span className="zoom-text">{swipeZoom}%</span>
                     <button
                       className="zoom-btn"
-                      onClick={() => handleZoom("swipe", 10)}
-                      disabled={swipeZoom >= 200}
-                    >
-                      <span className="material-icons">add</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {comparisonMode === "onion-skin" && (
-                <div className="onion-view">
-                  <div className="onion-container">
-                    <img
-                      src={figmaPreview}
-                      alt="Figma"
-                      className="onion-image"
-                      style={{ transform: `scale(${onionZoom / 100})` }}
-                    />
-                    <img
-                      src={actualPreview}
-                      alt="Actual"
-                      className="onion-image"
-                      style={{
-                        transform: `scale(${onionZoom / 100})`,
-                        opacity: opacity / 100,
-                      }}
-                    />
-                  </div>
-                  <div className="opacity-control">
-                    <span className="opacity-label">Opacity</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={opacity}
-                      onChange={(e) => setOpacity(Number(e.target.value))}
-                      className="opacity-slider"
-                    />
-                    <span className="opacity-label">{opacity}%</span>
-                  </div>
-                  <div className="zoom-controls" style={{ bottom: "1rem" }}>
-                    <button
-                      className="zoom-btn"
-                      onClick={() => handleZoom("onion", -10)}
-                      disabled={onionZoom <= 50}
-                    >
-                      <span className="material-icons">remove</span>
-                    </button>
-                    <span className="zoom-text">{onionZoom}%</span>
-                    <button
-                      className="zoom-btn"
-                      onClick={() => handleZoom("onion", 10)}
-                      disabled={onionZoom >= 200}
+                      onClick={() => handleZoom("swipe", ZOOM_CONSTRAINTS.STEP)}
+                      disabled={swipeZoom >= ZOOM_CONSTRAINTS.MAX}
                     >
                       <span className="material-icons">add</span>
                     </button>
@@ -378,16 +359,57 @@ export default function Home() {
                 Swipe
               </button>
               <button
-                className={`mode-btn ${comparisonMode === "onion-skin" ? "active" : ""}`}
-                onClick={() => setComparisonMode("onion-skin")}
+                className="mode-btn ai-btn"
+                onClick={handleAIAnalysis}
+                disabled={isAnalyzing}
               >
-                Onion Skin
+                {isAnalyzing ? "Analyzing..." : "Analyze with AI"}
+                <span className="material-icons" style={{ marginLeft: "8px", fontSize: "16px" }}>
+                  auto_awesome
+                </span>
               </button>
             </div>
           </div>
         ) : (
           <div className="empty-state">
             <p>Select two images to start comparison</p>
+          </div>
+        )}
+
+        {/* AI Results Modal */}
+        {showAiModal && aiResults && (
+          <div className="modal-overlay" onClick={() => setShowAiModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>AI Analysis Results</h2>
+                <button className="close-btn" onClick={() => setShowAiModal(false)}>
+                  <span className="material-icons">close</span>
+                </button>
+              </div>
+              <div className="modal-body">
+                {aiResults.issues && aiResults.issues.length > 0 ? (
+                  <ul className="issues-list">
+                    {aiResults.issues.map((issue: any, index: number) => (
+                      <li key={index} className={`issue-item ${issue.severity.toLowerCase()}`}>
+                        <div className="issue-header">
+                          <span className="issue-type">{issue.type}</span>
+                          <span className="issue-severity">{issue.severity}</span>
+                        </div>
+                        <p className="issue-description">{issue.description}</p>
+                        {issue.suggestion && (
+                          <p className="issue-suggestion">💡 {issue.suggestion}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="no-issues">
+                    <span className="material-icons check-icon">check_circle</span>
+                    <p>No discrepancies found! Great job.</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </main>

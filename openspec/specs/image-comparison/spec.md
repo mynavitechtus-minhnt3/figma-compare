@@ -20,7 +20,7 @@ The system SHALL allow users to upload two images for comparison via click or dr
 - **THEN** the system SHALL reject the file and show an error message
 
 #### Scenario: File size validation
-- **WHEN** user attempts to upload a file larger than 10MB
+- **WHEN** user attempts to upload a file larger than 20MB
 - **THEN** the system SHALL reject the file and show an error message
 
 #### Scenario: Image preview
@@ -59,21 +59,6 @@ The system SHALL overlay images with a draggable divider for comparison.
 
 #### Scenario: Synchronized zoom
 - **WHEN** user adjusts zoom in Swipe mode
-- **THEN** both images SHALL zoom together maintaining alignment
-
-### Requirement: Onion Skin Comparison Mode
-The system SHALL overlay images with adjustable opacity for the top image.
-
-#### Scenario: Opacity overlay
-- **WHEN** both images are uploaded and Onion Skin mode is selected
-- **THEN** the actual image SHALL overlay the Figma image with adjustable opacity
-
-#### Scenario: Opacity slider
-- **WHEN** user adjusts the opacity slider (0-100%)
-- **THEN** the top image opacity SHALL change in real-time
-
-#### Scenario: Synchronized zoom
-- **WHEN** user adjusts zoom in Onion Skin mode
 - **THEN** both images SHALL zoom together maintaining alignment
 
 ### Requirement: Zoom Controls
@@ -134,6 +119,7 @@ The system SHALL allow users to switch between comparison modes.
 - **WHEN** both images are uploaded
 - **THEN** mode selector buttons SHALL appear at the bottom of the viewer
 - **AND** the active mode SHALL be visually highlighted
+- **AND** only "2-up" and "Swipe" modes SHALL be available
 
 #### Scenario: Mode switching
 - **WHEN** user clicks a different mode button
