@@ -381,23 +381,41 @@ export default function Home() {
           <div className="modal-overlay" onClick={() => setShowAiModal(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>AI Analysis Results</h2>
+                <h2>AI Visual Regression Analysis</h2>
                 <button className="close-btn" onClick={() => setShowAiModal(false)}>
                   <span className="material-icons">close</span>
                 </button>
               </div>
               <div className="modal-body">
-                {aiResults.issues && aiResults.issues.length > 0 ? (
+                {/* Analysis Summary */}
+                {aiResults.analysis_log && (
+                  <div className="analysis-summary">
+                    <p className="analysis-log">{aiResults.analysis_log}</p>
+                    <div className="analysis-stats">
+                      <span className={`status-badge ${aiResults.is_pass ? 'pass' : 'fail'}`}>
+                        {aiResults.is_pass ? '✓ PASS' : '✗ FAIL'}
+                      </span>
+                      <span className="bug-count">
+                        {aiResults.total_bugs} {aiResults.total_bugs === 1 ? 'Bug' : 'Bugs'} Found
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bugs List */}
+                {aiResults.bugs && aiResults.bugs.length > 0 ? (
                   <ul className="issues-list">
-                    {aiResults.issues.map((issue: any, index: number) => (
-                      <li key={index} className={`issue-item ${issue.severity.toLowerCase()}`}>
+                    {aiResults.bugs.map((bug: any) => (
+                      <li key={bug.id} className={`issue-item ${bug.severity.toLowerCase()}`}>
                         <div className="issue-header">
-                          <span className="issue-type">{issue.type}</span>
-                          <span className="issue-severity">{issue.severity}</span>
+                          <span className="issue-type">{bug.type.replace(/_/g, ' ')}</span>
+                          <span className="issue-severity">{bug.severity}</span>
                         </div>
-                        <p className="issue-description">{issue.description}</p>
-                        {issue.suggestion && (
-                          <p className="issue-suggestion">💡 {issue.suggestion}</p>
+                        <p className="issue-description">{bug.description}</p>
+                        {bug.bounding_box && (
+                          <p className="bounding-box">
+                            📍 Location: [{bug.bounding_box.join(', ')}]
+                          </p>
                         )}
                       </li>
                     ))}
@@ -405,7 +423,7 @@ export default function Home() {
                 ) : (
                   <div className="no-issues">
                     <span className="material-icons check-icon">check_circle</span>
-                    <p>No discrepancies found! Great job.</p>
+                    <p>No visual drift detected! Perfect match.</p>
                   </div>
                 )}
               </div>
