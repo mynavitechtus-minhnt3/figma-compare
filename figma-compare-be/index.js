@@ -31,10 +31,10 @@ app.get('/image', async (req, res) => {
       error: response.data.err,
       image: response.data.images[nodeId] || null,
     });
-  } catch (err) {
-    console.error(err);
+  } catch (e) {
+    console.error(e);
     res.status(500).json({
-      error: err,
+      error: e.message,
     });
   }
 });
@@ -78,18 +78,24 @@ app.post('/compare',
           temperature: 0,
         },
       });
-      fs.unlink(expectedPath, () => {});
-      fs.unlink(actualPath, () => {});
-      res.json({
-        data: response.text,
-      });
-    } catch (err) {
-      console.error(err);
+      fs.unlink(expectedPath, () => { });
+      fs.unlink(actualPath, () => { });
+      try {
+        res.json({
+          data: JSON.parse(response.text),
+        });
+      } catch (e) {
+        res.json({
+          data: { analysis_log: response.text },
+        });
+      }
+    } catch (e) {
+      console.error(e);
       res.status(500).json({
-        error: err,
+        error: e.message,
       });
     }
-});
+  });
 
 app.listen(process.env.PORT, () => {
   console.log(`API server running at http://localhost:${process.env.PORT}`);
