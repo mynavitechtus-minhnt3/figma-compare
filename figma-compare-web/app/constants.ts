@@ -1,9 +1,9 @@
 // API Configuration
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // API Endpoints
 export const API_ENDPOINTS = {
-  COMPARE_AI: `${API_BASE_URL}/compare/ai`,
+  GET_IMAGE: `${API_BASE_URL}/image`,
   COMPARE: `${API_BASE_URL}/compare`,
 } as const;
 

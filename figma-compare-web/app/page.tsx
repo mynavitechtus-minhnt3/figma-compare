@@ -1,7 +1,12 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { API_ENDPOINTS, FILE_CONSTRAINTS, ZOOM_CONSTRAINTS } from "./constants";
+import { ComparisonResult, Bug } from "./types";
+import { fetchFigmaImage, compareImages } from "./lib/api";
+import BugOverlay from "./components/BugOverlay/BugOverlay";
+import ResultsPanel from "./components/ResultsPanel/ResultsPanel";
+import { loadImage, resizeImageToMatchWidth } from "./lib/imageUtils";
 
 export default function Home() {
   const [figmaFile, setFigmaFile] = useState<File | null>(null);
@@ -12,11 +17,21 @@ export default function Home() {
     figma: false,
     actual: false,
   });
+  
+  // New state for Figma URL input
+  const [inputMode, setInputMode] = useState<"file" | "url">("file");
+  const [figmaUrl, setFigmaUrl] = useState<string>("");
+  const [isFetchingUrl, setIsFetchingUrl] = useState(false);
+  
+  // State for sidebar collapse and results panel width
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [resultsPanelWidth, setResultsPanelWidth] = useState(400);
 
   const figmaInputRef = useRef<HTMLInputElement>(null);
   const actualInputRef = useRef<HTMLInputElement>(null);
+  const actualImageRef = useRef<HTMLImageElement>(null);
 
-  const handleFileSelect = (file: File, type: "figma" | "actual") => {
+  const handleFileSelect = async (file: File, type: "figma" | "actual") => {
     // Validation
     if (!file.type.match(FILE_CONSTRAINTS.ALLOWED_TYPES)) {
       alert("Only PNG and JPG files are supported");
@@ -27,19 +42,38 @@ export default function Home() {
       alert("File size must be less than 20MB");
       return;
     }
-
-    // Create preview
-    const reader = new FileReader();
-    reader.onload = (e) => {
+    
+    try {
       if (type === "figma") {
         setFigmaFile(file);
-        setFigmaPreview(e.target?.result as string);
+        const img = await loadImage(file);
+        setFigmaPreview(img.src);
+
+        // If actual file exists, resize it to match new figma width
+        if (actualFile) {
+          const resized = await resizeImageToMatchWidth(actualFile, img.width);
+          setActualFile(resized.file);
+          setActualPreview(resized.previewUrl);
+        }
       } else {
-        setActualFile(file);
-        setActualPreview(e.target?.result as string);
+        // Type actual
+        // Check if figma file exists to resize against
+        if (figmaFile) {
+          const figmaImg = await loadImage(figmaFile);
+          const resized = await resizeImageToMatchWidth(file, figmaImg.width);
+          setActualFile(resized.file);
+          setActualPreview(resized.previewUrl);
+        } else {
+          // No figma file yet, just set actual normally
+          const img = await loadImage(file);
+          setActualFile(file);
+          setActualPreview(img.src);
+        }
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error("Error processing image:", error);
+      alert("Failed to process image");
+    }
   };
 
   const handleDrag = (e: React.DragEvent, type: "figma" | "actual", active: boolean) => {
@@ -70,22 +104,54 @@ export default function Home() {
     }
   };
 
+  // Fetch image from Figma URL
+  const handleFetchFigmaImage = async () => {
+    if (!figmaUrl.trim()) {
+      alert("Please enter a Figma URL");
+      return;
+    }
+
+    setIsFetchingUrl(true);
+    try {
+      const file = await fetchFigmaImage(figmaUrl);
+      
+      setFigmaFile(file);
+      const img = await loadImage(file);
+      setFigmaPreview(img.src);
+
+      // If actual file exists, resize it to match new figma width
+      if (actualFile) {
+        const resized = await resizeImageToMatchWidth(actualFile, img.width);
+        setActualFile(resized.file);
+        setActualPreview(resized.previewUrl);
+      }
+    } catch (error) {
+      console.error("Error fetching Figma image:", error);
+      alert("Failed to fetch image from Figma URL. Please check the URL and try again.");
+    } finally {
+      setIsFetchingUrl(false);
+    }
+  };
+
   const [comparisonMode, setComparisonMode] = useState<"2-up" | "swipe">("2-up");
-  const [figmaZoom, setFigmaZoom] = useState(100);
-  const [actualZoom, setActualZoom] = useState(100);
-  const [swipeZoom, setSwipeZoom] = useState(100);
+  const [figmaZoom, setFigmaZoom] = useState(50);
+  const [actualZoom, setActualZoom] = useState(50);
+
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
+  const [imageDisplayWidth, setImageDisplayWidth] = useState<number>(0);
+  const [figmaImageWidth, setFigmaImageWidth] = useState<number | null>(null);
 
   const swipeContainerRef = useRef<HTMLDivElement>(null);
+  const figmaImageRef = useRef<HTMLImageElement>(null);
+  const actualImageRefSwipe = useRef<HTMLImageElement>(null);
 
-  const handleZoom = (type: "figma" | "actual" | "swipe", delta: number) => {
+  const handleZoom = (type: "figma" | "actual", delta: number) => {
+    if (comparisonMode === "swipe") return; // Disable zoom in swipe mode
     if (type === "figma") {
       setFigmaZoom((prev) => Math.min(ZOOM_CONSTRAINTS.MAX, Math.max(ZOOM_CONSTRAINTS.MIN, prev + delta)));
     } else if (type === "actual") {
       setActualZoom((prev) => Math.min(ZOOM_CONSTRAINTS.MAX, Math.max(ZOOM_CONSTRAINTS.MIN, prev + delta)));
-    } else {
-      setSwipeZoom((prev) => Math.min(ZOOM_CONSTRAINTS.MAX, Math.max(ZOOM_CONSTRAINTS.MIN, prev + delta)));
     }
   };
 
@@ -98,51 +164,83 @@ export default function Home() {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !swipeContainerRef.current) return;
-    const rect = swipeContainerRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    setSliderPosition((x / rect.width) * 100);
+    if (!isDragging || !swipeContainerRef.current || !actualImageRefSwipe.current || imageDisplayWidth === 0) return;
+    const containerRect = swipeContainerRef.current.getBoundingClientRect();
+    const imageRect = actualImageRefSwipe.current.getBoundingClientRect();
+    // Calculate position relative to the image, not the container
+    const x = e.clientX - imageRect.left;
+    // Limit swipe to image display width
+    const clampedX = Math.max(0, Math.min(x, imageDisplayWidth));
+    setSliderPosition((clampedX / imageDisplayWidth) * 100);
   };
 
-  const [aiResults, setAiResults] = useState<any>(null);
+  // Update image display width when images load in swipe mode
+  const handleActualImageLoad = () => {
+    if (comparisonMode === "swipe" && actualImageRefSwipe.current) {
+      // Use the actual image's display width (both should be the same)
+      const width = actualImageRefSwipe.current.offsetWidth;
+      if (width > 0) {
+        setImageDisplayWidth(width);
+        setFigmaImageWidth(width); // Set figma image to same width
+      }
+    }
+  };
+
+  const handleFigmaImageLoad = () => {
+    if (comparisonMode === "swipe" && actualImageRefSwipe.current) {
+      // Ensure figma image matches actual image width
+      const width = actualImageRefSwipe.current.offsetWidth;
+      if (width > 0) {
+        setImageDisplayWidth(width);
+        setFigmaImageWidth(width);
+      }
+    }
+  };
+
+  // Reset slider position when switching modes
+  useEffect(() => {
+    if (comparisonMode === "swipe") {
+      setSliderPosition(50);
+      // Reset image width to recalculate on next load
+      setImageDisplayWidth(0);
+      setFigmaImageWidth(null);
+    }
+  }, [comparisonMode]);
+
+  const [aiResults, setAiResults] = useState<ComparisonResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [showAiModal, setShowAiModal] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const [selectedBugId, setSelectedBugId] = useState<number | null>(null);
+  const [showBugOverlays, setShowBugOverlays] = useState(true);
 
   const handleAIAnalysis = async () => {
     if (!figmaFile || !actualFile) return;
 
     setIsAnalyzing(true);
     setAiResults(null);
-
-    const formData = new FormData();
-    formData.append("files", figmaFile);
-    formData.append("files", actualFile);
+    setSelectedBugId(null);
+    setShowResults(false);
+    setShowBugOverlays(false);
 
     try {
-      const response = await fetch(API_ENDPOINTS.COMPARE_AI, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error("Analysis failed");
-      }
-
-      const data = await response.json();
-      setAiResults(data);
-      setShowAiModal(true);
+      const results = await compareImages(figmaFile, actualFile, { timeout: 90000 });
+      setAiResults(results);
+      setShowResults(true);
+      setShowBugOverlays(true);
     } catch (error) {
       console.error("Error analyzing images:", error);
-      alert("Failed to analyze images. Please try again.");
+      alert(error instanceof Error ? error.message : "Failed to analyze images. Please try again.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  // Removed BugOverlay component - now using imported component
+
   return (
     <div className="app-container" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       {/* Sidebar */}
-      <aside className={`sidebar ${figmaFile && actualFile ? "collapsed" : ""}`}>
+      <aside className="sidebar">
         <header className="sidebar-header">
           <h1 className="sidebar-title">Figma Compare</h1>
           <p className="sidebar-subtitle">Upload images to compare</p>
@@ -152,38 +250,106 @@ export default function Home() {
           {/* Figma Upload */}
           <div className="upload-group">
             <label className="upload-label">Figma Design</label>
-            <input
-              ref={figmaInputRef}
-              type="file"
-              accept="image/png, image/jpeg"
-              className="hidden"
-              style={{ display: "none" }}
-              onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0], "figma")}
-            />
+            
+            {/* Input Mode Toggle */}
+            <div className="input-mode-toggle">
+              <label className="input-mode-option">
+                <input
+                  type="radio"
+                  name="inputMode"
+                  value="file"
+                  checked={inputMode === "file"}
+                  onChange={() => setInputMode("file")}
+                />
+                <span>Upload File</span>
+              </label>
+              <label className="input-mode-option">
+                <input
+                  type="radio"
+                  name="inputMode"
+                  value="url"
+                  checked={inputMode === "url"}
+                  onChange={() => setInputMode("url")}
+                />
+                <span>Figma URL</span>
+              </label>
+            </div>
 
-            {figmaPreview ? (
-              <div className="preview-container">
-                <img src={figmaPreview} alt="Figma Preview" className="preview-image" />
-                <button className="remove-btn" onClick={() => removeFile("figma")}>
-                  <span className="material-icons">close</span>
-                </button>
-              </div>
+            {inputMode === "file" ? (
+              <>
+                <input
+                  ref={figmaInputRef}
+                  type="file"
+                  accept="image/png, image/jpeg"
+                  className="hidden"
+                  style={{ display: "none" }}
+                  onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0], "figma")}
+                />
+
+                {figmaPreview ? (
+                  <div className="preview-container">
+                    <img src={figmaPreview} alt="Figma Preview" className="preview-image" />
+                    <button className="remove-btn" onClick={() => removeFile("figma")}>
+                      <span className="material-icons">close</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className={`upload-box ${dragActive.figma ? "drag-active" : ""}`}
+                    onClick={() => figmaInputRef.current?.click()}
+                    onDragEnter={(e) => handleDrag(e, "figma", true)}
+                    onDragLeave={(e) => handleDrag(e, "figma", false)}
+                    onDragOver={(e) => handleDrag(e, "figma", true)}
+                    onDrop={(e) => handleDrop(e, "figma")}
+                  >
+                    <div className="upload-content">
+                      <span className="material-icons upload-icon">cloud_upload</span>
+                      <span className="upload-text">
+                        <span className="upload-link">Click to upload</span> or drag and drop
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
-              <div
-                className={`upload-box ${dragActive.figma ? "drag-active" : ""}`}
-                onClick={() => figmaInputRef.current?.click()}
-                onDragEnter={(e) => handleDrag(e, "figma", true)}
-                onDragLeave={(e) => handleDrag(e, "figma", false)}
-                onDragOver={(e) => handleDrag(e, "figma", true)}
-                onDrop={(e) => handleDrop(e, "figma")}
-              >
-                <div className="upload-content">
-                  <span className="material-icons upload-icon">cloud_upload</span>
-                  <span className="upload-text">
-                    <span className="upload-link">Click to upload</span> or drag and drop
-                  </span>
-                </div>
-              </div>
+              <>
+                {figmaPreview ? (
+                  <div className="preview-container">
+                    <img src={figmaPreview} alt="Figma Preview" className="preview-image" />
+                    <button className="remove-btn" onClick={() => removeFile("figma")}>
+                      <span className="material-icons">close</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="url-input-container">
+                    <input
+                      type="text"
+                      className="url-input-field"
+                      placeholder="https://www.figma.com/design/..."
+                      value={figmaUrl}
+                      onChange={(e) => setFigmaUrl(e.target.value)}
+                      onKeyPress={(e) => e.key === "Enter" && handleFetchFigmaImage()}
+                    />
+                    <button
+                      className="fetch-btn"
+                      onClick={handleFetchFigmaImage}
+                      disabled={isFetchingUrl}
+                    >
+                      {isFetchingUrl ? (
+                        <>
+                          <span className="material-icons spinning">refresh</span>
+                          Fetching...
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-icons">download</span>
+                          Fetch Image
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -230,204 +396,289 @@ export default function Home() {
       {/* Main Content */}
       <main className="main-content">
         {figmaPreview && actualPreview ? (
-          <div className="viewer-container">
-            <div className="viewer-area">
-              {comparisonMode === "2-up" && (
-                <div className="two-up-view">
-                  {/* Figma Image */}
-                  <div className="image-wrapper">
-                    <div className="image-label">Figma Design</div>
-                    <div className="image-scroll-container">
-                      <img
-                        src={figmaPreview}
-                        alt="Figma"
-                        className="comparison-img"
-                        style={{ transform: `scale(${figmaZoom / 100})` }}
-                      />
-                    </div>
-                    <div className="zoom-controls">
-                      <button
-                        className="zoom-btn"
-                        onClick={() => handleZoom("figma", -ZOOM_CONSTRAINTS.STEP)}
-                        disabled={figmaZoom <= ZOOM_CONSTRAINTS.MIN}
-                      >
-                        <span className="material-icons">remove</span>
-                      </button>
-                      <span className="zoom-text">{figmaZoom}%</span>
-                      <button
-                        className="zoom-btn"
-                        onClick={() => handleZoom("figma", ZOOM_CONSTRAINTS.STEP)}
-                        disabled={figmaZoom >= ZOOM_CONSTRAINTS.MAX}
-                      >
-                        <span className="material-icons">add</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Actual Image */}
-                  <div className="image-wrapper">
-                    <div className="image-label">Actual Implementation</div>
-                    <div className="image-scroll-container">
-                      <img
-                        src={actualPreview}
-                        alt="Actual"
-                        className="comparison-img"
-                        style={{ transform: `scale(${actualZoom / 100})` }}
-                      />
-                    </div>
-                    <div className="zoom-controls">
-                      <button
-                        className="zoom-btn"
-                        onClick={() => handleZoom("actual", -ZOOM_CONSTRAINTS.STEP)}
-                        disabled={actualZoom <= ZOOM_CONSTRAINTS.MIN}
-                      >
-                        <span className="material-icons">remove</span>
-                      </button>
-                      <span className="zoom-text">{actualZoom}%</span>
-                      <button
-                        className="zoom-btn"
-                        onClick={() => handleZoom("actual", ZOOM_CONSTRAINTS.STEP)}
-                        disabled={actualZoom >= ZOOM_CONSTRAINTS.MAX}
-                      >
-                        <span className="material-icons">add</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {comparisonMode === "swipe" && (
-                <div className="swipe-view" onMouseMove={handleMouseMove}>
-                  <div className="swipe-container" ref={swipeContainerRef}>
-                    <img
-                      src={actualPreview}
-                      alt="Actual"
-                      className="swipe-image"
-                      style={{ transform: `scale(${swipeZoom / 100})` }}
-                    />
-                    <div
-                      className="swipe-divider"
-                      style={{ left: `${sliderPosition}%` }}
-                      onMouseDown={handleMouseDown}
-                    >
-                      <div className="swipe-handle">
-                        <span className="material-icons">code</span>
+          <div className="content-wrapper">
+            <div className="viewer-container" style={{ 
+              flex: showResults ? `0 0 calc(100% - ${resultsPanelWidth}px)` : '1' 
+            }}>
+              <div className="viewer-area">
+                {comparisonMode === "2-up" && (
+                  <div className="two-up-view">
+                    {/* Figma Image */}
+                    <div className="image-wrapper">
+                      <div className="image-label">Figma Design</div>
+                      <div className="image-scroll-container" style={{ textAlign: 'center' }}>
+                        <div style={{ 
+                          position: 'relative', 
+                          display: 'inline-block',
+                          transform: `scale(${figmaZoom / 100})`,
+                          transformOrigin: 'top center'
+                        }}>
+                          <img
+                            src={figmaPreview}
+                            alt="Figma"
+                            className="comparison-img"
+                            style={{ transform: 'none', display: 'block', maxWidth: 'none', maxHeight: 'none' }}
+                          />
+                        </div>
+                      </div>
+                      <div className="zoom-controls">
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("figma", -ZOOM_CONSTRAINTS.STEP)}
+                          disabled={figmaZoom <= ZOOM_CONSTRAINTS.MIN}
+                        >
+                          <span className="material-icons">remove</span>
+                        </button>
+                        <span className="zoom-text">{figmaZoom}%</span>
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("figma", ZOOM_CONSTRAINTS.STEP)}
+                          disabled={figmaZoom >= ZOOM_CONSTRAINTS.MAX}
+                        >
+                          <span className="material-icons">add</span>
+                        </button>
                       </div>
                     </div>
-                    <img
-                      src={figmaPreview}
-                      alt="Figma"
-                      className="swipe-image"
-                      style={{
-                        transform: `scale(${swipeZoom / 100})`,
-                        clipPath: `inset(0 ${100 - sliderPosition}% 0 0)`,
-                      }}
-                    />
-                  </div>
-                  <div className="zoom-controls">
-                    <button
-                      className="zoom-btn"
-                      onClick={() => handleZoom("swipe", -ZOOM_CONSTRAINTS.STEP)}
-                      disabled={swipeZoom <= ZOOM_CONSTRAINTS.MIN}
-                    >
-                      <span className="material-icons">remove</span>
-                    </button>
-                    <span className="zoom-text">{swipeZoom}%</span>
-                    <button
-                      className="zoom-btn"
-                      onClick={() => handleZoom("swipe", ZOOM_CONSTRAINTS.STEP)}
-                      disabled={swipeZoom >= ZOOM_CONSTRAINTS.MAX}
-                    >
-                      <span className="material-icons">add</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
 
-            <div className="mode-selector">
-              <button
-                className={`mode-btn ${comparisonMode === "2-up" ? "active" : ""}`}
-                onClick={() => setComparisonMode("2-up")}
-              >
-                2-up
-              </button>
-              <button
-                className={`mode-btn ${comparisonMode === "swipe" ? "active" : ""}`}
-                onClick={() => setComparisonMode("swipe")}
-              >
-                Swipe
-              </button>
-              <button
-                className="mode-btn ai-btn"
-                onClick={handleAIAnalysis}
-                disabled={isAnalyzing}
-              >
-                {isAnalyzing ? "Analyzing..." : "Analyze with AI"}
-                <span className="material-icons" style={{ marginLeft: "8px", fontSize: "16px" }}>
-                  auto_awesome
-                </span>
-              </button>
+                    {/* Actual Image */}
+                    <div className="image-wrapper">
+                      <div className="image-label">Actual Implementation</div>
+                      <div className="image-scroll-container" style={{ position: 'relative', textAlign: 'center' }}>
+                        <div style={{ 
+                          position: 'relative', 
+                          display: 'inline-block',
+                          transform: `scale(${actualZoom / 100})`,
+                          transformOrigin: 'top center'
+                        }}>
+                          <img
+                            ref={actualImageRef}
+                            src={actualPreview}
+                            alt="Actual"
+                            className="comparison-img"
+                            style={{ transform: 'none', display: 'block', maxWidth: 'none', maxHeight: 'none' }}
+                          />
+                          {aiResults && aiResults.bugs && (
+                            <BugOverlay 
+                              bugs={aiResults.bugs} 
+                              selectedBugId={selectedBugId}
+                              onBugSelect={setSelectedBugId}
+                              visible={showBugOverlays}
+                              imageRef={actualImageRef}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <div className="zoom-controls">
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("actual", -ZOOM_CONSTRAINTS.STEP)}
+                          disabled={actualZoom <= ZOOM_CONSTRAINTS.MIN}
+                        >
+                          <span className="material-icons">remove</span>
+                        </button>
+                        <span className="zoom-text">{actualZoom}%</span>
+                        <button
+                          className="zoom-btn"
+                          onClick={() => handleZoom("actual", ZOOM_CONSTRAINTS.STEP)}
+                          disabled={actualZoom >= ZOOM_CONSTRAINTS.MAX}
+                        >
+                          <span className="material-icons">add</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {comparisonMode === "swipe" && (
+                  <div className="swipe-view" onMouseMove={handleMouseMove}>
+                    <div 
+                      className="swipe-container"
+                      style={{ 
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        width: '100%',
+                        height: '100%',
+                        background: 'transparent'
+                      }}
+                    >
+                      <div 
+                        ref={swipeContainerRef}
+                        style={{ 
+                          position: 'relative', 
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                          maxHeight: '100%'
+                        }}
+                      >
+                        <img
+                          ref={actualImageRefSwipe}
+                          src={actualPreview}
+                          alt="Actual"
+                          onLoad={handleActualImageLoad}
+                          style={{ 
+                            width: 'auto',
+                            height: 'auto',
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                            display: 'block',
+                            position: 'relative',
+                            zIndex: 1,
+                            objectFit: 'contain'
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: `${sliderPosition}%`,
+                            height: '100%',
+                            overflow: 'hidden',
+                            pointerEvents: 'none',
+                            zIndex: 2
+                          }}
+                        >
+                          <img
+                            ref={figmaImageRef}
+                            src={figmaPreview}
+                            alt="Figma"
+                            onLoad={handleFigmaImageLoad}
+                            style={{
+                              width: figmaImageWidth ? `${figmaImageWidth}px` : 'auto',
+                              height: 'auto',
+                              maxWidth: '100%',
+                              maxHeight: '100%',
+                              display: 'block',
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </div>
+                        <div
+                          className="swipe-divider"
+                          style={{ 
+                            left: `${sliderPosition}%`, 
+                            zIndex: 10, 
+                            height: '100%', 
+                            top: 0,
+                            transform: 'translateX(-50%)'
+                          }}
+                          onMouseDown={handleMouseDown}
+                        >
+                          <div className="swipe-handle">
+                            <span className="material-icons">code</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mode-selector">
+                <button
+                  className={`mode-btn ${comparisonMode === "2-up" ? "active" : ""}`}
+                  onClick={() => setComparisonMode("2-up")}
+                >
+                  2-up
+                </button>
+                <button
+                  className={`mode-btn ${comparisonMode === "swipe" ? "active" : ""}`}
+                  onClick={() => setComparisonMode("swipe")}
+                >
+                  Swipe
+                </button>
+                <button
+                  className="mode-btn ai-btn"
+                  onClick={handleAIAnalysis}
+                  disabled={isAnalyzing}
+                >
+                  {isAnalyzing ? "Analyzing..." : "Analyze with AI"}
+                  <span className="material-icons" style={{ marginLeft: "8px", fontSize: "16px" }}>
+                    auto_awesome
+                  </span>
+                </button>
+                {aiResults && aiResults.bugs && aiResults.bugs.length > 0 && (
+                  <button
+                    className={`mode-btn overlay-toggle ${showBugOverlays ? 'active' : ''}`}
+                    onClick={() => setShowBugOverlays(!showBugOverlays)}
+                    title="Toggle bug overlays"
+                  >
+                    <span className="material-icons" style={{ fontSize: "16px" }}>
+                      {showBugOverlays ? 'visibility' : 'visibility_off'}
+                    </span>
+                    Overlays
+                  </button>
+                )}
+              </div>
             </div>
+            
+            {/* AI Results Panel - Inline with viewer */}
+            {showResults && aiResults && (
+              <div 
+                className="results-panel-container" 
+                style={{ width: `${resultsPanelWidth}px` }}
+              >
+                <div 
+                  className="resize-handle"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const startX = e.clientX;
+                    const startWidth = resultsPanelWidth;
+                    
+                    // Prevent text selection during drag
+                    document.body.style.userSelect = 'none';
+                    document.body.style.cursor = 'ew-resize';
+                    
+                    let animationFrameId: number;
+                    
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      // Use requestAnimationFrame for smoother updates
+                      if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                      }
+                      
+                      animationFrameId = requestAnimationFrame(() => {
+                        const delta = startX - moveEvent.clientX;
+                        const newWidth = Math.max(300, Math.min(600, startWidth + delta));
+                        setResultsPanelWidth(newWidth);
+                      });
+                    };
+                    
+                    const handleMouseUp = () => {
+                      // Restore default styles
+                      document.body.style.userSelect = '';
+                      document.body.style.cursor = '';
+                      
+                      if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                      }
+                      
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                ></div>
+                <ResultsPanel
+                  results={aiResults}
+                  selectedBugId={selectedBugId}
+                  onBugSelect={setSelectedBugId}
+                  onClose={() => setShowResults(false)}
+                />
+              </div>
+            )}
           </div>
         ) : (
           <div className="empty-state">
             <p>Select two images to start comparison</p>
-          </div>
-        )}
-
-        {/* AI Results Modal */}
-        {showAiModal && aiResults && (
-          <div className="modal-overlay" onClick={() => setShowAiModal(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>AI Visual Regression Analysis</h2>
-                <button className="close-btn" onClick={() => setShowAiModal(false)}>
-                  <span className="material-icons">close</span>
-                </button>
-              </div>
-              <div className="modal-body">
-                {/* Analysis Summary */}
-                {aiResults.analysis_log && (
-                  <div className="analysis-summary">
-                    <p className="analysis-log">{aiResults.analysis_log}</p>
-                    <div className="analysis-stats">
-                      <span className={`status-badge ${aiResults.is_pass ? 'pass' : 'fail'}`}>
-                        {aiResults.is_pass ? '✓ PASS' : '✗ FAIL'}
-                      </span>
-                      <span className="bug-count">
-                        {aiResults.total_bugs} {aiResults.total_bugs === 1 ? 'Bug' : 'Bugs'} Found
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Bugs List */}
-                {aiResults.bugs && aiResults.bugs.length > 0 ? (
-                  <ul className="issues-list">
-                    {aiResults.bugs.map((bug: any) => (
-                      <li key={bug.id} className={`issue-item ${bug.severity.toLowerCase()}`}>
-                        <div className="issue-header">
-                          <span className="issue-type">{bug.type.replace(/_/g, ' ')}</span>
-                          <span className="issue-severity">{bug.severity}</span>
-                        </div>
-                        <p className="issue-description">{bug.description}</p>
-                        {bug.bounding_box && (
-                          <p className="bounding-box">
-                            📍 Location: [{bug.bounding_box.join(', ')}]
-                          </p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="no-issues">
-                    <span className="material-icons check-icon">check_circle</span>
-                    <p>No visual drift detected! Perfect match.</p>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         )}
       </main>
