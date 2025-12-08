@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const axios = require('axios');
@@ -6,6 +7,11 @@ const { GoogleGenAI } = require('@google/genai');
 require('dotenv').config({ path: `.env.${process.env.NODE_ENV || 'dev'}` });
 
 const app = express();
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 app.use(express.json());
 const upload = multer({ dest: "images/" });
 
@@ -29,7 +35,7 @@ app.get('/image', async (req, res) => {
     );
     res.json({
       error: response.data.err,
-      image: response.data.images[nodeId] || null,
+      image: response.data.images[nodeId.replaceAll('-', ':')] || null,
     });
   } catch (e) {
     console.error(e);
