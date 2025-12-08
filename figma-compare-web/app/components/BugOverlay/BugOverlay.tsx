@@ -23,6 +23,10 @@ export default function BugOverlay({ bugs, selectedBugId, onBugSelect, visible, 
   return (
     <div className={styles.container}>
       {bugs.map((bug) => {
+        // Defensive: ensure bounding_box is an iterable of 4 numbers
+        if (!Array.isArray(bug.bounding_box) || bug.bounding_box.length < 4) {
+          return null;
+        }
         const [y1, x1, y2, x2] = bug.bounding_box;
         const isSelected = selectedBugId === bug.id;
         
