@@ -17,12 +17,12 @@ export default function Home() {
     figma: false,
     actual: false,
   });
-  
+
   // New state for Figma URL input
   const [inputMode, setInputMode] = useState<"file" | "url">("file");
   const [figmaUrl, setFigmaUrl] = useState<string>("");
   const [isFetchingUrl, setIsFetchingUrl] = useState(false);
-  
+
   // State for sidebar collapse and results panel width
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [resultsPanelWidth, setResultsPanelWidth] = useState(400);
@@ -42,7 +42,7 @@ export default function Home() {
       alert("File size must be less than 20MB");
       return;
     }
-    
+
     try {
       if (type === "figma") {
         setFigmaFile(file);
@@ -114,7 +114,13 @@ export default function Home() {
     setIsFetchingUrl(true);
     try {
       const file = await fetchFigmaImage(figmaUrl);
-      
+
+      // Clear previous analysis results when loading new image
+      setAiResults(null);
+      setShowResults(false);
+      setSelectedBugId(null);
+      setShowBugOverlays(false);
+
       setFigmaFile(file);
       const img = await loadImage(file);
       setFigmaPreview(img.src);
@@ -240,17 +246,28 @@ export default function Home() {
   return (
     <div className="app-container" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       {/* Sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
         <header className="sidebar-header">
-          <h1 className="sidebar-title">Figma Compare</h1>
-          <p className="sidebar-subtitle">Upload images to compare</p>
+          <div className="sidebar-header-content">
+            <h1 className="sidebar-title">Figma Compare</h1>
+            <p className="sidebar-subtitle">Upload images to compare</p>
+          </div>
+          <button
+            className="sidebar-toggle-btn"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <span className="material-icons">
+              {sidebarCollapsed ? "menu" : "menu_open"}
+            </span>
+          </button>
         </header>
 
         <div className="upload-section">
           {/* Figma Upload */}
           <div className="upload-group">
             <label className="upload-label">Figma Design</label>
-            
+
             {/* Input Mode Toggle */}
             <div className="input-mode-toggle">
               <label className="input-mode-option">
@@ -397,8 +414,8 @@ export default function Home() {
       <main className="main-content">
         {figmaPreview && actualPreview ? (
           <div className="content-wrapper">
-            <div className="viewer-container" style={{ 
-              flex: showResults ? `0 0 calc(100% - ${resultsPanelWidth}px)` : '1' 
+            <div className="viewer-container" style={{
+              flex: showResults ? `0 0 calc(100% - ${resultsPanelWidth}px)` : '1'
             }}>
               <div className="viewer-area">
                 {comparisonMode === "2-up" && (
@@ -407,8 +424,8 @@ export default function Home() {
                     <div className="image-wrapper">
                       <div className="image-label">Figma Design</div>
                       <div className="image-scroll-container" style={{ textAlign: 'center' }}>
-                        <div style={{ 
-                          position: 'relative', 
+                        <div style={{
+                          position: 'relative',
                           display: 'inline-block',
                           transform: `scale(${figmaZoom / 100})`,
                           transformOrigin: 'top center'
@@ -444,8 +461,8 @@ export default function Home() {
                     <div className="image-wrapper">
                       <div className="image-label">Actual Implementation</div>
                       <div className="image-scroll-container" style={{ position: 'relative', textAlign: 'center' }}>
-                        <div style={{ 
-                          position: 'relative', 
+                        <div style={{
+                          position: 'relative',
                           display: 'inline-block',
                           transform: `scale(${actualZoom / 100})`,
                           transformOrigin: 'top center'
@@ -458,8 +475,8 @@ export default function Home() {
                             style={{ transform: 'none', display: 'block', maxWidth: 'none', maxHeight: 'none' }}
                           />
                           {aiResults && aiResults.bugs && (
-                            <BugOverlay 
-                              bugs={aiResults.bugs} 
+                            <BugOverlay
+                              bugs={aiResults.bugs}
                               selectedBugId={selectedBugId}
                               onBugSelect={setSelectedBugId}
                               visible={showBugOverlays}
@@ -491,9 +508,9 @@ export default function Home() {
 
                 {comparisonMode === "swipe" && (
                   <div className="swipe-view" onMouseMove={handleMouseMove}>
-                    <div 
+                    <div
                       className="swipe-container"
-                      style={{ 
+                      style={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -504,10 +521,10 @@ export default function Home() {
                         background: 'transparent'
                       }}
                     >
-                      <div 
+                      <div
                         ref={swipeContainerRef}
-                        style={{ 
-                          position: 'relative', 
+                        style={{
+                          position: 'relative',
                           display: 'inline-block',
                           maxWidth: '100%',
                           maxHeight: '100%'
@@ -518,7 +535,7 @@ export default function Home() {
                           src={actualPreview}
                           alt="Actual"
                           onLoad={handleActualImageLoad}
-                          style={{ 
+                          style={{
                             width: 'auto',
                             height: 'auto',
                             maxWidth: '100%',
@@ -561,10 +578,10 @@ export default function Home() {
                         </div>
                         <div
                           className="swipe-divider"
-                          style={{ 
-                            left: `${sliderPosition}%`, 
-                            zIndex: 10, 
-                            height: '100%', 
+                          style={{
+                            left: `${sliderPosition}%`,
+                            zIndex: 10,
+                            height: '100%',
                             top: 0,
                             transform: 'translateX(-50%)'
                           }}
@@ -603,66 +620,67 @@ export default function Home() {
                     auto_awesome
                   </span>
                 </button>
-                {aiResults && aiResults.bugs && aiResults.bugs.length > 0 && (
-                  <button
-                    className={`mode-btn overlay-toggle ${showBugOverlays ? 'active' : ''}`}
-                    onClick={() => setShowBugOverlays(!showBugOverlays)}
-                    title="Toggle bug overlays"
-                  >
-                    <span className="material-icons" style={{ fontSize: "16px" }}>
-                      {showBugOverlays ? 'visibility' : 'visibility_off'}
-                    </span>
-                    Overlays
-                  </button>
-                )}
+                {aiResults && aiResults.bugs && aiResults.bugs.length > 0 &&
+                  aiResults.bugs.some(bug => Array.isArray(bug.bounding_box) && bug.bounding_box.length === 4) && (
+                    <button
+                      className={`mode-btn overlay-toggle ${showBugOverlays ? 'active' : ''}`}
+                      onClick={() => setShowBugOverlays(!showBugOverlays)}
+                      title="Toggle bug overlays"
+                    >
+                      <span className="material-icons" style={{ fontSize: "16px" }}>
+                        {showBugOverlays ? 'visibility' : 'visibility_off'}
+                      </span>
+                      Overlays
+                    </button>
+                  )}
               </div>
             </div>
-            
+
             {/* AI Results Panel - Inline with viewer */}
             {showResults && aiResults && (
-              <div 
-                className="results-panel-container" 
+              <div
+                className="results-panel-container"
                 style={{ width: `${resultsPanelWidth}px` }}
               >
-                <div 
+                <div
                   className="resize-handle"
                   onMouseDown={(e) => {
                     e.preventDefault();
                     const startX = e.clientX;
                     const startWidth = resultsPanelWidth;
-                    
+
                     // Prevent text selection during drag
                     document.body.style.userSelect = 'none';
                     document.body.style.cursor = 'ew-resize';
-                    
+
                     let animationFrameId: number;
-                    
+
                     const handleMouseMove = (moveEvent: MouseEvent) => {
                       // Use requestAnimationFrame for smoother updates
                       if (animationFrameId) {
                         cancelAnimationFrame(animationFrameId);
                       }
-                      
+
                       animationFrameId = requestAnimationFrame(() => {
                         const delta = startX - moveEvent.clientX;
                         const newWidth = Math.max(300, Math.min(600, startWidth + delta));
                         setResultsPanelWidth(newWidth);
                       });
                     };
-                    
+
                     const handleMouseUp = () => {
                       // Restore default styles
                       document.body.style.userSelect = '';
                       document.body.style.cursor = '';
-                      
+
                       if (animationFrameId) {
                         cancelAnimationFrame(animationFrameId);
                       }
-                      
+
                       document.removeEventListener('mousemove', handleMouseMove);
                       document.removeEventListener('mouseup', handleMouseUp);
                     };
-                    
+
                     document.addEventListener('mousemove', handleMouseMove);
                     document.addEventListener('mouseup', handleMouseUp);
                   }}

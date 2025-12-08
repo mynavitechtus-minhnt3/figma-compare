@@ -618,7 +618,7 @@ body {
 /* Mode Selector */
 .mode-selector {
   position: absolute;
-  bottom: 1rem;
+  bottom: 4.5rem;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

@@ -6,12 +6,32 @@ import { ComparisonResult } from '../types';
  */
 export async function fetchFigmaImage(url: string): Promise<File> {
   const response = await fetch(`${API_ENDPOINTS.GET_IMAGE}?url=${encodeURIComponent(url)}`);
-  
+
   if (!response.ok) {
     throw new Error('Failed to fetch image from URL');
   }
 
-  const blob = await response.blob();
+  // Parse JSON response
+  const data = await response.json();
+
+  // Check for errors in response
+  if (data.error) {
+    throw new Error(data.error);
+  }
+
+  // Check if image URL exists
+  if (!data.image) {
+    throw new Error('No image URL returned from API');
+  }
+
+  // Fetch the actual image from the URL
+  const imageResponse = await fetch(data.image);
+
+  if (!imageResponse.ok) {
+    throw new Error('Failed to fetch image from Figma CDN');
+  }
+
+  const blob = await imageResponse.blob();
   return new File([blob], 'figma-design.png', { type: blob.type });
 }
 
@@ -20,7 +40,7 @@ export async function fetchFigmaImage(url: string): Promise<File> {
  */
 export function parseComparisonResponse(data: any): ComparisonResult {
   let parsedData = data.data;
-  
+
   // If analysis_log is a string containing JSON (from markdown code block)
   if (typeof parsedData.analysis_log === 'string' && parsedData.analysis_log.includes('```json')) {
     try {
@@ -34,7 +54,7 @@ export function parseComparisonResponse(data: any): ComparisonResult {
       // Fall back to original data if parsing fails
     }
   }
-  
+
   return parsedData;
 }
 
@@ -73,11 +93,11 @@ export async function compareImages(
     return parseComparisonResponse(data);
   } catch (error) {
     clearTimeout(timeoutId);
-    
+
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Request timeout after ${timeout / 1000} seconds`);
     }
-    
+
     throw error;
   }
 }
