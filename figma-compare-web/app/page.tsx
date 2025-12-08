@@ -145,12 +145,11 @@ export default function Home() {
 
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
-  const [imageDisplayWidth, setImageDisplayWidth] = useState<number>(0);
-  const [figmaImageWidth, setFigmaImageWidth] = useState<number | null>(null);
+  const [commonImageWidth, setCommonImageWidth] = useState<number | null>(null);
 
   const swipeContainerRef = useRef<HTMLDivElement>(null);
-  const figmaImageRef = useRef<HTMLImageElement>(null);
-  const actualImageRefSwipe = useRef<HTMLImageElement>(null);
+  const swipeFigmaImageRef = useRef<HTMLImageElement>(null);
+  const swipeActualImageRef = useRef<HTMLImageElement>(null);
 
   const handleZoom = (type: "figma" | "actual", delta: number) => {
     if (comparisonMode === "swipe") return; // Disable zoom in swipe mode
@@ -161,7 +160,7 @@ export default function Home() {
     }
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleMouseDown = () => {
     setIsDragging(true);
   };
 
@@ -170,46 +169,49 @@ export default function Home() {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !swipeContainerRef.current || !actualImageRefSwipe.current || imageDisplayWidth === 0) return;
-    const containerRect = swipeContainerRef.current.getBoundingClientRect();
-    const imageRect = actualImageRefSwipe.current.getBoundingClientRect();
-    // Calculate position relative to the image, not the container
-    const x = e.clientX - imageRect.left;
-    // Limit swipe to image display width
-    const clampedX = Math.max(0, Math.min(x, imageDisplayWidth));
-    setSliderPosition((clampedX / imageDisplayWidth) * 100);
+    if (!isDragging || !swipeContainerRef.current) return;
+
+    const rect = swipeContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = (x / rect.width) * 100;
+    setSliderPosition(Math.max(0, Math.min(100, percentage)));
   };
 
-  // Update image display width when images load in swipe mode
-  const handleActualImageLoad = () => {
-    if (comparisonMode === "swipe" && actualImageRefSwipe.current) {
-      // Use the actual image's display width (both should be the same)
-      const width = actualImageRefSwipe.current.offsetWidth;
-      if (width > 0) {
-        setImageDisplayWidth(width);
-        setFigmaImageWidth(width); // Set figma image to same width
-      }
-    }
+  // Calculate common width when images load in swipe mode
+  const calculateCommonWidth = () => {
+    if (!swipeFigmaImageRef.current || !swipeActualImageRef.current || !swipeContainerRef.current) return;
+
+    const figmaImg = swipeFigmaImageRef.current;
+    const actualImg = swipeActualImageRef.current;
+    const container = swipeContainerRef.current;
+
+    // Get natural dimensions
+    const figmaRatio = figmaImg.naturalWidth / figmaImg.naturalHeight;
+    const actualRatio = actualImg.naturalWidth / actualImg.naturalHeight;
+
+    // Get container dimensions
+    const containerRect = container.getBoundingClientRect();
+    const maxWidth = containerRect.width;
+    const maxHeight = containerRect.height;
+
+    // Calculate width needed to fit both images fully
+    // The width that ensures both images fit within maxHeight
+    const widthForFigma = maxHeight * figmaRatio;
+    const widthForActual = maxHeight * actualRatio;
+
+    // Use the smaller width to ensure both fit
+    let commonWidth = Math.min(widthForFigma, widthForActual, maxWidth);
+
+    setCommonImageWidth(commonWidth);
   };
 
-  const handleFigmaImageLoad = () => {
-    if (comparisonMode === "swipe" && actualImageRefSwipe.current) {
-      // Ensure figma image matches actual image width
-      const width = actualImageRefSwipe.current.offsetWidth;
-      if (width > 0) {
-        setImageDisplayWidth(width);
-        setFigmaImageWidth(width);
-      }
-    }
-  };
-
-  // Reset slider position when switching modes
+  // Reset slider position and recalculate width when switching modes
   useEffect(() => {
     if (comparisonMode === "swipe") {
       setSliderPosition(50);
-      // Reset image width to recalculate on next load
-      setImageDisplayWidth(0);
-      setFigmaImageWidth(null);
+      setCommonImageWidth(null);
+      // Recalculate after a short delay to ensure images are rendered
+      setTimeout(calculateCommonWidth, 100);
     }
   }, [comparisonMode]);
 
@@ -507,90 +509,60 @@ export default function Home() {
                 )}
 
                 {comparisonMode === "swipe" && (
-                  <div className="swipe-view" onMouseMove={handleMouseMove}>
+                  <div
+                    className="twentytwenty-wrapper"
+                    onMouseMove={handleMouseMove}
+                    onMouseDown={handleMouseDown}
+                  >
                     <div
-                      className="swipe-container"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        overflow: 'hidden',
-                        position: 'relative',
-                        width: '100%',
-                        height: '100%',
-                        background: 'transparent'
-                      }}
+                      ref={swipeContainerRef}
+                      className="twentytwenty-container"
+                      style={commonImageWidth ? { width: `${commonImageWidth}px` } : {}}
                     >
+                      {/* Bottom Layer: Actual Implementation */}
+                      <img
+                        ref={swipeActualImageRef}
+                        src={actualPreview}
+                        alt="Actual Implementation"
+                        className="twentytwenty-before"
+                        onLoad={calculateCommonWidth}
+                        style={commonImageWidth ? { width: `${commonImageWidth}px` } : {}}
+                      />
+
+                      {/* Overlay Layer with Clipping: Figma Design */}
                       <div
-                        ref={swipeContainerRef}
+                        className="twentytwenty-overlay"
                         style={{
-                          position: 'relative',
-                          display: 'inline-block',
-                          maxWidth: '100%',
-                          maxHeight: '100%'
+                          clipPath: `inset(0 ${100 - sliderPosition}% 0 0)`
                         }}
                       >
                         <img
-                          ref={actualImageRefSwipe}
-                          src={actualPreview}
-                          alt="Actual"
-                          onLoad={handleActualImageLoad}
-                          style={{
-                            width: 'auto',
-                            height: 'auto',
-                            maxWidth: '100%',
-                            maxHeight: '100%',
-                            display: 'block',
-                            position: 'relative',
-                            zIndex: 1,
-                            objectFit: 'contain'
-                          }}
+                          ref={swipeFigmaImageRef}
+                          src={figmaPreview}
+                          alt="Figma Design"
+                          className="twentytwenty-after"
+                          onLoad={calculateCommonWidth}
+                          style={commonImageWidth ? { width: `${commonImageWidth}px` } : {}}
                         />
-                        <div
-                          style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            width: `${sliderPosition}%`,
-                            height: '100%',
-                            overflow: 'hidden',
-                            pointerEvents: 'none',
-                            zIndex: 2
-                          }}
-                        >
-                          <img
-                            ref={figmaImageRef}
-                            src={figmaPreview}
-                            alt="Figma"
-                            onLoad={handleFigmaImageLoad}
-                            style={{
-                              width: figmaImageWidth ? `${figmaImageWidth}px` : 'auto',
-                              height: 'auto',
-                              maxWidth: '100%',
-                              maxHeight: '100%',
-                              display: 'block',
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              objectFit: 'contain'
-                            }}
-                          />
+                        <div className="twentytwenty-after-label">
+                          Figma Design
                         </div>
-                        <div
-                          className="swipe-divider"
-                          style={{
-                            left: `${sliderPosition}%`,
-                            zIndex: 10,
-                            height: '100%',
-                            top: 0,
-                            transform: 'translateX(-50%)'
-                          }}
-                          onMouseDown={handleMouseDown}
-                        >
-                          <div className="swipe-handle">
-                            <span className="material-icons">code</span>
-                          </div>
+                      </div>
+
+                      {/* Handle */}
+                      <div
+                        className="twentytwenty-handle"
+                        style={{ left: `${sliderPosition}%` }}
+                      >
+                        <div className="twentytwenty-handle-center">
+                          <span className="twentytwenty-left-arrow"></span>
+                          <span className="twentytwenty-right-arrow"></span>
                         </div>
+                      </div>
+
+                      {/* Bottom Image Label */}
+                      <div className="twentytwenty-before-label">
+                        Actual Implementation
                       </div>
                     </div>
                   </div>
