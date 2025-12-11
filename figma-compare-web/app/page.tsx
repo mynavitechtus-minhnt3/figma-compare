@@ -44,6 +44,12 @@ export default function Home() {
     }
 
     try {
+      // Clear previous analysis results when loading new image
+      setAiResults(null);
+      setShowResults(false);
+      setSelectedBugId(null);
+      setShowBugOverlays(false);
+
       if (type === "figma") {
         setFigmaFile(file);
         const img = await loadImage(file);
@@ -93,6 +99,12 @@ export default function Home() {
   };
 
   const removeFile = (type: "figma" | "actual") => {
+    // Clear previous analysis results when removing image
+    setAiResults(null);
+    setShowResults(false);
+    setSelectedBugId(null);
+    setShowBugOverlays(false);
+
     if (type === "figma") {
       setFigmaFile(null);
       setFigmaPreview("");

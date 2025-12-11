@@ -27,24 +27,33 @@ export default function BugOverlay({ bugs, selectedBugId, onBugSelect, visible, 
         if (!Array.isArray(bug.bounding_box) || bug.bounding_box.length < 4) {
           return null;
         }
-        const [y1, x1, y2, x2] = bug.bounding_box;
+        // Explicitly destructure as [ymin, xmin, ymax, xmax] per API contract
+        let [ymin, xmin, ymax, xmax] = bug.bounding_box;
+        
+        // Validation & Clamping (0-1000)
+        ymin = Math.max(0, Math.min(1000, ymin));
+        xmin = Math.max(0, Math.min(1000, xmin));
+        ymax = Math.max(0, Math.min(1000, ymax));
+        xmax = Math.max(0, Math.min(1000, xmax));
+
         const isSelected = selectedBugId === bug.id;
         
         // Convert normalized coordinates (0-1000) to actual pixels
-        const pixelY1 = y1 * scaleY;
-        const pixelX1 = x1 * scaleX;
-        const pixelY2 = y2 * scaleY;
-        const pixelX2 = x2 * scaleX;
+        // Ensure robust calculation even if coordinates are flipped
+        const top = Math.min(ymin, ymax) * scaleY;
+        const left = Math.min(xmin, xmax) * scaleX;
+        const width = Math.abs(xmax - xmin) * scaleX;
+        const height = Math.abs(ymax - ymin) * scaleY;
 
         return (
           <div
             key={bug.id}
             className={`${styles.box} ${styles[bug.severity.toLowerCase()]} ${isSelected ? styles.selected : ''}`}
             style={{
-              top: `${pixelY1}px`,
-              left: `${pixelX1}px`,
-              width: `${pixelX2 - pixelX1}px`,
-              height: `${pixelY2 - pixelY1}px`,
+              top: `${top}px`,
+              left: `${left}px`,
+              width: `${width}px`,
+              height: `${height}px`,
             }}
             onClick={() => onBugSelect(isSelected ? null : bug.id)}
             title={`${bug.type.replace(/_/g, ' ')} - ${bug.severity}`}
