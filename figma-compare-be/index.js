@@ -3,7 +3,7 @@ const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const axios = require('axios');
-const { GoogleGenAI } = require('@google/genai');
+const { AzureOpenAI } = require('openai');
 require('dotenv').config({ path: `.env.${process.env.NODE_ENV || 'dev'}` });
 
 const app = express();
@@ -45,7 +45,7 @@ app.get('/image', async (req, res) => {
   }
 });
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new AzureOpenAI();
 app.post('/compare',
   upload.fields([
     { name: "expected", maxCount: 1 },
@@ -61,38 +61,40 @@ app.post('/compare',
       const actualPath = req.files.actual[0].path;
       const expectedFile = fs.readFileSync(expectedPath, { encoding: "base64" });
       const actualFile = fs.readFileSync(actualPath, { encoding: "base64" });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [
+      const response = await ai.responses.create({
+        model: process.env.OPENAI_MODEL,
+        temperature: 0,
+        input: [
           {
-            inlineData: {
-              mimeType: "image/png",
-              data: expectedFile,
-            },
-          },
-          {
-            inlineData: {
-              mimeType: "image/png",
-              data: actualFile,
-            },
-          },
-          {
-            text: process.env.FIGMA_COMPARE_PROMT
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: process.env.FIGMA_COMPARE_PROMPT,
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/jpeg;base64,${expectedFile}`,
+                detail: 'high',
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/jpeg;base64,${actualFile}`,
+                detail: 'high',
+              },
+            ],
           },
         ],
-        config: {
-          temperature: 0,
-        },
       });
       fs.unlink(expectedPath, () => { });
       fs.unlink(actualPath, () => { });
       try {
         res.json({
-          data: JSON.parse(response.text),
+          data: JSON.parse(response.output_text),
         });
       } catch (e) {
         res.json({
-          data: { analysis_log: response.text },
+          data: { analysis_log: response.output_text },
         });
       }
     } catch (e) {
