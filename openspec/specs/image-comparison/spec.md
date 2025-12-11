@@ -1,7 +1,7 @@
 # image-comparison Specification
 
 ## Purpose
-TBD - created by archiving change add-image-comparison-viewer. Update Purpose after archive.
+Provide a comprehensive image comparison viewer that allows users to upload, view, and compare two images (Figma design vs. actual implementation) using multiple comparison modes (2-up side-by-side and swipe overlay) with zoom controls and responsive layout.
 ## Requirements
 ### Requirement: File Upload
 The system SHALL allow users to upload two images for comparison via click or drag-and-drop.
